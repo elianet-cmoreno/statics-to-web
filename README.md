@@ -6,7 +6,7 @@ LaLiga, Premier League, Bundesliga, Serie A y Ligue 1.
 
 ## 🔗 Ver gráfico interactivo
 
-[estadios-europa.github.io](https://tuusuario.github.io/nombre-repo)
+[estadios-europa.github.io](https://ecmoreno98.github.io/capacidad-estadios)
 
 ## ¿Qué muestra?
 
@@ -31,6 +31,3 @@ en la temporada. Cuanto más cerca de la línea diagonal, mayor es el porcentaje
 
 Desarrollado íntegramente en HTML, CSS y JavaScript con SVG nativo, sin librerías externas.
 
-## Otros proyectos
-
-*Próximamente*
