@@ -1,0 +1,377 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Estadios ligas europeas — Agencia EFE</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: #fff; font-family: Arial, sans-serif; color: #1a1a1a; }
+  .wrapper { max-width: 900px; margin: 0 auto; padding: 32px 24px 32px; }
+
+  h1 { font-size: clamp(18px, 2.8vw, 26px); font-weight: 900; line-height: 1.15; margin-bottom: 6px; }
+  .subtitle { font-size: 12px; color: #666; margin-bottom: 18px; line-height: 1.5; }
+
+  /* Legend + filters */
+  .controls { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 14px; }
+  .liga-btn {
+    display: flex; align-items: center; gap: 6px;
+    padding: 3px 0; border: none;
+    cursor: pointer; font-size: 11px;
+    font-weight: 400; font-family: inherit; background: none;
+    color: #1a1a1a;
+    transition: all 0.15s; white-space: nowrap;
+  }
+  .liga-btn .dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
+  .liga-btn.active { opacity: 1; }
+  .liga-btn.dimmed { opacity: 0.3; }
+
+  /* Search */
+  .search-wrap {
+    display: flex; align-items: center; gap: 6px;
+    border: 1px solid #ddd; border-radius: 3px;
+    padding: 4px 10px; background: #fff;
+    width: 220px; margin-bottom: 14px;
+  }
+  .search-wrap svg { flex-shrink: 0; }
+  .search-wrap input {
+    border: none; outline: none; font-size: 11px;
+    font-family: inherit; color: #1a1a1a; width: 100%;
+    background: transparent;
+  }
+  .search-wrap input::placeholder { color: #bbb; }
+  .search-results {
+    font-size: 10px; color: #888; margin-bottom: 4px; min-height: 14px;
+  }
+
+  /* Chart area */
+  .chart-wrap { position: relative; }
+  #chart-svg { width: 100%; display: block; }
+
+  /* Tooltip */
+  .tooltip {
+    position: fixed; background: #fff; color: #1a1a1a;
+    border: 1px solid #ddd; padding: 10px 13px; border-radius: 3px;
+    font-size: 11px; line-height: 1.7; pointer-events: none;
+    opacity: 0; transition: opacity 0.1s; z-index: 100;
+    max-width: 220px; box-shadow: 0 2px 10px rgba(0,0,0,0.08);
+  }
+  .tooltip.visible { opacity: 1; }
+  .tt-team { font-weight: 800; font-size: 12px; margin-bottom: 3px; }
+  .tt-stadium { color: #888; font-size: 10px; margin-bottom: 5px; }
+  .tt-row { display: flex; justify-content: space-between; gap: 16px; }
+  .tt-lbl { color: #999; }
+  .tt-val { font-weight: 700; }
+
+  .footer { margin-top: 14px; display: flex; justify-content: space-between; font-size: 11px; color: #999; padding-top: 10px; border-top: 1px solid #eee; }
+  .footer-brand { font-weight: 900; color: #1a1a1a; letter-spacing: 0.06em; font-size: 12px; }
+</style>
+</head>
+<body>
+<div class="wrapper">
+  <h1>¿Qué equipos llenan sus estadios en las grandes ligas europeas?</h1>
+  <p class="subtitle">Los estadios que más se han llenado en la temporada 24/25 · Relación entre la capacidad máxima de los estadios y la asistencia promedio por partido.</p>
+
+  <div style="display:flex; justify-content:space-between; align-items:flex-start; flex-wrap:wrap; gap:12px; margin-bottom:6px;">
+    <div class="controls" id="controls"></div>
+    <div>
+      <div class="search-wrap">
+        <svg width="12" height="12" viewBox="0 0 12 12" fill="none"><circle cx="5" cy="5" r="3.5" stroke="#bbb" stroke-width="1.2"/><line x1="7.8" y1="7.8" x2="11" y2="11" stroke="#bbb" stroke-width="1.2" stroke-linecap="round"/></svg>
+        <input type="text" id="search-input" placeholder="Buscar equipo o estadio…">
+      </div>
+      <div class="search-results" id="search-results"></div>
+    </div>
+  </div>
+  <div class="chart-wrap">
+    <svg id="chart-svg" viewBox="0 0 820 520" xmlns="http://www.w3.org/2000/svg"></svg>
+  </div>
+  <div class="footer">
+    <span>FUENTE: Transfermarket.</span>
+  </div>
+</div>
+<div class="tooltip" id="tooltip"></div>
+
+<script>
+const LIGAS = {
+  "LaLiga":         { color: "#C9A227", label: "LaLiga" },
+  "Premier League": { color: "#1B3A6B", label: "Premier League" },
+  "Liga1":          { color: "#F4917A", label: "Liga 1" },
+  "SerieA":         { color: "#6BA3BE", label: "Serie A" },
+  "Bundesliga":     { color: "#E8327A", label: "Bundesliga" },
+};
+
+const DATA = [{"liga":"LaLiga","team":"Real Madrid CF","stadium":"Santiago Bernabéu","capacidad":81044,"espectadores":1179542,"promedio":73721},{"liga":"LaLiga","team":"Atlético de Madrid","stadium":"Riyadh Air Metropolitano","capacidad":70460,"espectadores":985489,"promedio":61593},{"liga":"LaLiga","team":"Real Betis Balompié","stadium":"Benito Villamarín","capacidad":60721,"espectadores":828860,"promedio":51804},{"liga":"LaLiga","team":"Athletic Club","stadium":"San Mamés","capacidad":53289,"espectadores":821798,"promedio":48341},{"liga":"LaLiga","team":"FC Barcelona","stadium":"Olímpic Lluís Companys","capacidad":55926,"espectadores":773221,"promedio":45484},{"liga":"LaLiga","team":"Valencia CF","stadium":"Mestalla","capacidad":49430,"espectadores":728794,"promedio":42870},{"liga":"LaLiga","team":"Sevilla FC","stadium":"Ramón Sánchez-Pizjuán","capacidad":43883,"espectadores":571692,"promedio":35731},{"liga":"LaLiga","team":"Real Sociedad","stadium":"Reale Arena","capacidad":39313,"espectadores":489989,"promedio":30624},{"liga":"LaLiga","team":"RCD Espanyol","stadium":"RCDE Stadium","capacidad":40500,"espectadores":391240,"promedio":24453},{"liga":"LaLiga","team":"UD Las Palmas","stadium":"Estadio de Gran Canaria","capacidad":32400,"espectadores":380397,"promedio":23775},{"liga":"LaLiga","team":"RC Celta de Vigo","stadium":"Abanca Balaídos","capacidad":24870,"espectadores":366818,"promedio":21578},{"liga":"LaLiga","team":"CA Osasuna","stadium":"El Sadar","capacidad":23576,"espectadores":326193,"promedio":20387},{"liga":"LaLiga","team":"Real Valladolid CF","stadium":"José Zorrilla","capacidad":27618,"espectadores":325276,"promedio":20330},{"liga":"LaLiga","team":"RCD Mallorca","stadium":"Son Moix","capacidad":26020,"espectadores":317405,"promedio":18671},{"liga":"LaLiga","team":"Villarreal CF","stadium":"La Cerámica","capacidad":23500,"espectadores":277849,"promedio":18523},{"liga":"LaLiga","team":"Deportivo Alavés","stadium":"Mendizorroza","capacidad":19840,"espectadores":274026,"promedio":17127},{"liga":"LaLiga","team":"Rayo Vallecano","stadium":"Estadio de Vallecas","capacidad":14708,"espectadores":205725,"promedio":12858},{"liga":"LaLiga","team":"Getafe CF","stadium":"Coliseum","capacidad":16800,"espectadores":193476,"promedio":11381},{"liga":"LaLiga","team":"Girona FC","stadium":"Montilivi","capacidad":14624,"espectadores":190209,"promedio":11888},{"liga":"LaLiga","team":"CD Leganés","stadium":"Butarque","capacidad":12454,"espectadores":176776,"promedio":11049},{"liga":"Premier League","team":"Manchester United","stadium":"Old Trafford","capacidad":74879,"espectadores":1254845,"promedio":73814},{"liga":"Premier League","team":"West Ham United","stadium":"London Stadium","capacidad":62500,"espectadores":1060795,"promedio":62400},{"liga":"Premier League","team":"Tottenham Hotspur","stadium":"Tottenham Hotspur Stadium","capacidad":62850,"espectadores":1039702,"promedio":61159},{"liga":"Premier League","team":"Liverpool FC","stadium":"Anfield","capacidad":61276,"espectadores":968113,"promedio":60507},{"liga":"Premier League","team":"Arsenal FC","stadium":"Emirates Stadium","capacidad":60704,"espectadores":964342,"promedio":60271},{"liga":"Premier League","team":"Manchester City","stadium":"Etihad Stadium","capacidad":55097,"espectadores":859981,"promedio":53749},{"liga":"Premier League","team":"Newcastle United","stadium":"St James' Park","capacidad":52258,"espectadores":834926,"promedio":52183},{"liga":"Premier League","team":"Aston Villa","stadium":"Villa Park","capacidad":42918,"espectadores":713889,"promedio":41993},{"liga":"Premier League","team":"Everton FC","stadium":"Goodison Park","capacidad":39414,"espectadores":666130,"promedio":39184},{"liga":"Premier League","team":"Chelsea FC","stadium":"Stamford Bridge","capacidad":41631,"espectadores":640180,"promedio":40011},{"liga":"Premier League","team":"Ipswich Town","stadium":"Portman Road","capacidad":30056,"espectadores":505807,"promedio":29753},{"liga":"Premier League","team":"Leicester City","stadium":"King Power Stadium","capacidad":32259,"espectadores":503888,"promedio":31493},{"liga":"Premier League","team":"Brighton & Hove Albion","stadium":"AMEX Stadium","capacidad":31876,"espectadores":503458,"promedio":31466},{"liga":"Premier League","team":"Southampton FC","stadium":"St Mary's Stadium","capacidad":32384,"espectadores":495262,"promedio":30954},{"liga":"Premier League","team":"Wolverhampton Wanderers","stadium":"Molineux Stadium","capacidad":31750,"espectadores":490157,"promedio":30635},{"liga":"Premier League","team":"Nottingham Forest","stadium":"The City Ground","capacidad":30404,"espectadores":481900,"promedio":30119},{"liga":"Premier League","team":"Fulham FC","stadium":"Craven Cottage","capacidad":29589,"espectadores":454365,"promedio":26727},{"liga":"Premier League","team":"Crystal Palace","stadium":"Selhurst Park","capacidad":25486,"espectadores":427334,"promedio":25137},{"liga":"Premier League","team":"Brentford FC","stadium":"Gtech Community Stadium","capacidad":17250,"espectadores":290458,"promedio":17086},{"liga":"Premier League","team":"AFC Bournemouth","stadium":"Vitality Stadium","capacidad":11307,"espectadores":179080,"promedio":11193},{"liga":"Liga1","team":"Olympique de Marsella","stadium":"Orange Vélodrome","capacidad":67394,"espectadores":963205,"promedio":64214},{"liga":"Liga1","team":"París Saint-Germain FC","stadium":"Parc des Princes","capacidad":48583,"espectadores":704119,"promedio":46941},{"liga":"Liga1","team":"Olympique de Lyon","stadium":"Groupama Stadium","capacidad":59186,"espectadores":700984,"promedio":50070},{"liga":"Liga1","team":"LOSC Lille","stadium":"Stade Pierre-Mauroy","capacidad":50186,"espectadores":627203,"promedio":41814},{"liga":"Liga1","team":"RC Lens","stadium":"Stade Bollaert-Delelis","capacidad":38223,"espectadores":568561,"promedio":37904},{"liga":"Liga1","team":"Stade Rennais FC","stadium":"Roazhon Park","capacidad":29778,"espectadores":439252,"promedio":27453},{"liga":"Liga1","team":"AS Saint-Étienne","stadium":"Stade Geoffroy-Guichard","capacidad":41965,"espectadores":438410,"promedio":29227},{"liga":"Liga1","team":"FC Nantes","stadium":"Stade de la Beaujoire","capacidad":35322,"espectadores":413611,"promedio":29544},{"liga":"Liga1","team":"Toulouse FC","stadium":"Stadium Municipal","capacidad":33150,"espectadores":394410,"promedio":26294},{"liga":"Liga1","team":"OGC Niza","stadium":"Allianz Riviera","capacidad":36178,"espectadores":358029,"promedio":23869},{"liga":"Liga1","team":"Le Havre AC","stadium":"Stade Océane","capacidad":25178,"espectadores":298539,"promedio":19903},{"liga":"Liga1","team":"Racing Club de Estrasburgo","stadium":"Stade de la Meinau","capacidad":26109,"espectadores":271020,"promedio":19359},{"liga":"Liga1","team":"AJ Auxerre","stadium":"Stade de l'Abbé-Deschamps","capacidad":18541,"espectadores":248314,"promedio":16554},{"liga":"Liga1","team":"Stade de Reims","stadium":"Stade Auguste-Delaune","capacidad":20519,"espectadores":247211,"promedio":15451},{"liga":"Liga1","team":"Stade Brestois 29","stadium":"Stade Francis-Le Blé","capacidad":15220,"espectadores":219442,"promedio":14629},{"liga":"Liga1","team":"Montpellier HSC","stadium":"Stade de la Mosson","capacidad":22000,"espectadores":202186,"promedio":13479},{"liga":"Liga1","team":"Angers SCO","stadium":"Stade Raymond Kopa","capacidad":19350,"espectadores":196163,"promedio":13078},{"liga":"Liga1","team":"AS Mónaco","stadium":"Stade Louis-II","capacidad":18525,"espectadores":145539,"promedio":9096},{"liga":"SerieA","team":"AC Milan","stadium":"Giuseppe Meazza","capacidad":75923,"espectadores":1218534,"promedio":71678},{"liga":"SerieA","team":"Inter de Milán","stadium":"Giuseppe Meazza","capacidad":75923,"espectadores":1120922,"promedio":70058},{"liga":"SerieA","team":"AS Roma","stadium":"Olimpico di Roma","capacidad":70634,"espectadores":1054474,"promedio":62028},{"liga":"SerieA","team":"SSC Nápoles","stadium":"Diego Armando Maradona","capacidad":54726,"espectadores":813725,"promedio":50858},{"liga":"SerieA","team":"SS Lazio","stadium":"Olimpico di Roma","capacidad":70634,"espectadores":691958,"promedio":43247},{"liga":"SerieA","team":"Juventus de Turín","stadium":"Allianz Stadium","capacidad":41507,"espectadores":684223,"promedio":40248},{"liga":"SerieA","team":"Génova","stadium":"Luigi Ferraris","capacidad":34901,"espectadores":494052,"promedio":30878},{"liga":"SerieA","team":"Bolonia","stadium":"Stadio Renato Dall'Ara","capacidad":36462,"espectadores":470683,"promedio":27687},{"liga":"SerieA","team":"US Lecce","stadium":"Ettore Giardiniero","capacidad":31559,"espectadores":440237,"promedio":25896},{"liga":"SerieA","team":"Hellas Verona","stadium":"Marcantonio Bentegodi","capacidad":39211,"espectadores":399966,"promedio":24998},{"liga":"SerieA","team":"Torino FC","stadium":"Olimpico Grande Torino","capacidad":28177,"espectadores":370435,"promedio":23152},{"liga":"SerieA","team":"Atalanta de Bérgamo","stadium":"Gewiss Stadium","capacidad":24950,"espectadores":362549,"promedio":22659},{"liga":"SerieA","team":"Udinese","stadium":"Bluenergy Stadium","capacidad":25144,"espectadores":349919,"promedio":21870},{"liga":"SerieA","team":"Fiorentina","stadium":"Artemio Franchi","capacidad":43147,"espectadores":344966,"promedio":20292},{"liga":"SerieA","team":"Parma","stadium":"Ennio Tardini","capacidad":22352,"espectadores":322850,"promedio":18991},{"liga":"SerieA","team":"Cagliari","stadium":"Unipol Domus","capacidad":16365,"espectadores":273342,"promedio":16079},{"liga":"SerieA","team":"AC Monza","stadium":"Brianteo","capacidad":17102,"espectadores":192796,"promedio":11341},{"liga":"SerieA","team":"Como 1907","stadium":"Giuseppe Sinigaglia","capacidad":13602,"espectadores":168349,"promedio":10522},{"liga":"SerieA","team":"Venezia FC","stadium":"Pier Luigi Penzo","capacidad":12048,"espectadores":163252,"promedio":10203},{"liga":"SerieA","team":"Empoli FC","stadium":"Carlo Castellani","capacidad":19847,"espectadores":160948,"promedio":10730},{"liga":"Bundesliga","team":"Borussia Dortmund","stadium":"SIGNAL IDUNA PARK","capacidad":81365,"espectadores":1220475,"promedio":81365},{"liga":"Bundesliga","team":"Bayern Múnich","stadium":"Allianz Arena","capacidad":75000,"espectadores":1125000,"promedio":75000},{"liga":"Bundesliga","team":"VfB Stuttgart","stadium":"MHPArena","capacidad":60449,"espectadores":888500,"promedio":59233},{"liga":"Bundesliga","team":"Eintracht Fráncfort","stadium":"Deutsche Bank Park","capacidad":58000,"espectadores":864700,"promedio":57647},{"liga":"Bundesliga","team":"Borussia Mönchengladbach","stadium":"Borussia-Park","capacidad":54042,"espectadores":796897,"promedio":53126},{"liga":"Bundesliga","team":"RB Leipzig","stadium":"Red Bull Arena","capacidad":47069,"espectadores":670173,"promedio":44678},{"liga":"Bundesliga","team":"SV Werder Bremen","stadium":"Weserstadion","capacidad":42100,"espectadores":620752,"promedio":41383},{"liga":"Bundesliga","team":"SC Friburgo","stadium":"Europa-Park Stadion","capacidad":34700,"espectadores":511800,"promedio":34120},{"liga":"Bundesliga","team":"1.FSV Mainz 05","stadium":"Mewa Arena","capacidad":33305,"espectadores":484015,"promedio":32268},{"liga":"Bundesliga","team":"Bayer 04 Leverkusen","stadium":"BayArena","capacidad":30210,"espectadores":449556,"promedio":29970},{"liga":"Bundesliga","team":"FC Augsburgo","stadium":"WWK ARENA","capacidad":30660,"espectadores":447621,"promedio":29841},{"liga":"Bundesliga","team":"FC St. Pauli","stadium":"Millerntor-Stadion","capacidad":29546,"espectadores":442506,"promedio":29500},{"liga":"Bundesliga","team":"VfL Bochum","stadium":"Vonovia Ruhrstadion","capacidad":26000,"espectadores":382274,"promedio":25485},{"liga":"Bundesliga","team":"VfL Wolfsburgo","stadium":"Volkswagen Arena","capacidad":28917,"espectadores":374842,"promedio":24989},{"liga":"Bundesliga","team":"TSG 1899 Hoffenheim","stadium":"PreZero Arena","capacidad":30150,"espectadores":369952,"promedio":24663},{"liga":"Bundesliga","team":"1.FC Unión Berlín","stadium":"Stadion An der Alten Försterei","capacidad":22012,"espectadores":329181,"promedio":21945},{"liga":"Bundesliga","team":"1.FC Heidenheim 1846","stadium":"Voith-Arena","capacidad":15000,"espectadores":225000,"promedio":15000},{"liga":"Bundesliga","team":"Holstein Kiel","stadium":"Holstein-Stadion","capacidad":15034,"espectadores":223119,"promedio":14875}];
+
+// Chart dimensions
+const W=820, H=520;
+const PAD = { top:30, right:30, bottom:56, left:68 };
+const PW = W-PAD.left-PAD.right;
+const PH = H-PAD.top-PAD.bottom;
+
+// Scales
+const maxCap = 85000, minCap = 10000;
+const maxPro = 85000, minPro = 0;
+const maxEsp = Math.max(...DATA.map(d=>d.espectadores));
+const minEsp = Math.min(...DATA.map(d=>d.espectadores));
+
+function scaleX(v){ return PAD.left + (v - minCap) / (maxCap - minCap) * PW; }
+function scaleY(v){ return PAD.top + PH - (v - minPro) / (maxPro - minPro) * PH; }
+function scaleR(v){ return 4 + (v - minEsp) / (maxEsp - minEsp) * 14; }
+function fmtK(v){ return (v/1000).toFixed(0)+"k"; }
+function fmt(v){ return v.toLocaleString("es-ES"); }
+
+let activeLeague = null;
+let hoverLeague  = null;
+let searchTeams  = null;
+
+function getHighlight(){
+  if(searchTeams) return d => searchTeams.includes(d.team) ? 'highlight' : 'dimmed';
+  if(hoverLeague) return d => d.liga===hoverLeague ? 'active' : 'dimmed';
+  if(activeLeague) return d => d.liga===activeLeague ? 'active' : 'dimmed';
+  return () => 'active';
+}
+
+// Build legend buttons
+const ctrl = document.getElementById("controls");
+
+Object.entries(LIGAS).forEach(([key, info])=>{
+  const btn = document.createElement("button");
+  btn.className = "liga-btn active";
+  btn.dataset.liga = key;
+  btn.innerHTML = `<span class="dot" style="background:${info.color}"></span>${info.label}`;
+  btn.addEventListener("click", ()=>{
+    activeLeague = activeLeague===key ? null : key;
+    searchTeams = null;
+    document.getElementById("search-input").value = "";
+    document.getElementById("search-results").textContent = "";
+    document.querySelectorAll(".liga-btn").forEach(b=>{
+      const isThis = b.dataset.liga === activeLeague;
+      b.className = "liga-btn " + (activeLeague===null ? "active" : isThis ? "active" : "dimmed");
+    });
+    draw();
+  });
+  btn.addEventListener("mouseenter", ()=>{ hoverLeague=key; draw(); });
+  btn.addEventListener("mouseleave", ()=>{ hoverLeague=null; draw(); });
+  ctrl.appendChild(btn);
+});
+
+// Size legend below color legend
+const sizeLeg = document.createElement("div");
+sizeLeg.style.cssText = "display:flex;align-items:center;gap:14px;margin-top:10px;width:100%;flex-wrap:wrap;";
+const sizeTitle = document.createElement("span");
+sizeTitle.style.cssText = "font-size:10px;font-weight:400;color:#1a1a1a;";
+sizeTitle.textContent = "Espectadores (millones)";
+sizeLeg.appendChild(sizeTitle);
+[1.25, 0.6, 0.16].forEach(v=>{
+  const r = Math.round(4 + (v*1e6 - minEsp) / (maxEsp - minEsp) * 14);
+  const d = document.createElement("div");
+  d.style.cssText = "display:flex;align-items:center;gap:5px;";
+  d.innerHTML = `<svg width="${r*2+2}" height="${r*2+2}" viewBox="0 0 ${r*2+2} ${r*2+2}" style="display:block"><circle cx="${r+1}" cy="${r+1}" r="${r}" fill="none" stroke="#aaa" stroke-width="1"/></svg><span style="font-size:10px;color:#888;">${v}</span>`;
+  sizeLeg.appendChild(d);
+});
+ctrl.appendChild(sizeLeg);
+
+// Search logic
+const searchInput = document.getElementById("search-input");
+const searchResults = document.getElementById("search-results");
+searchInput.addEventListener("input", ()=>{
+  const q = searchInput.value.trim().toLowerCase();
+  if(!q){ searchTeams=null; searchResults.textContent=""; draw(); return; }
+  const matches = DATA.filter(d =>
+    d.team.toLowerCase().includes(q) || d.stadium.toLowerCase().includes(q)
+  );
+  if(matches.length===0){
+    searchTeams=null; searchResults.textContent="Sin resultados"; draw();
+  } else if(matches.length===1){
+    searchTeams=[matches[0].team];
+    searchResults.innerHTML = `<span style="color:#1a1a1a;font-weight:700;">${matches[0].team}</span> · ${matches[0].stadium}`;
+    draw();
+  } else {
+    const uniqueStadiums = [...new Set(matches.map(m => m.stadium))];
+    if(uniqueStadiums.length === 1){
+      // Todos los equipos comparten estadio: destacar todos
+      searchTeams = matches.map(m => m.team);
+      searchResults.innerHTML = matches.map(m=>`<span style="color:#1a1a1a;font-weight:700;">${m.team}</span>`).join(" · ") + ` &nbsp;·&nbsp; ${matches[0].stadium}`;
+    } else {
+      searchTeams = [matches[0].team];
+      searchResults.innerHTML = matches.slice(0,3).map(m=>`<span style="cursor:pointer;margin-right:8px;color:#555;" onclick="selectTeam('${m.team.replace(/'/g,"\\'")}','${m.stadium.replace(/'/g,"\\'")}')">▸ ${m.team}</span>`).join("");
+    }
+    draw();
+  }
+});
+
+function selectTeam(team, stadium){
+  searchTeams = [team];
+  document.getElementById("search-input").value = team;
+  document.getElementById("search-results").innerHTML = `<span style="color:#1a1a1a;font-weight:700;">${team}</span> · ${stadium}`;
+  draw();
+}
+
+function draw(){
+  const svg = document.getElementById("chart-svg");
+  svg.innerHTML = "";
+  const ns = "http://www.w3.org/2000/svg";
+  function mk(tag){ return document.createElementNS(ns,tag); }
+  function txt(x,y,s,size,weight,color,anchor){
+    const t=mk("text");
+    t.setAttribute("x",x); t.setAttribute("y",y);
+    t.setAttribute("text-anchor",anchor||"middle");
+    t.setAttribute("font-size",size); t.setAttribute("font-weight",weight||"400");
+    t.setAttribute("font-family","Arial,sans-serif");
+    t.setAttribute("fill",color||"#888");
+    t.textContent=s; return t;
+  }
+
+  // Grid lines Y
+  [0,20000,40000,60000,80000].forEach(v=>{
+    const y = scaleY(v);
+    const line = mk("line");
+    line.setAttribute("x1",PAD.left); line.setAttribute("x2",W-PAD.right);
+    line.setAttribute("y1",y); line.setAttribute("y2",y);
+    line.setAttribute("stroke","#f0f0f0"); line.setAttribute("stroke-width","1");
+    svg.appendChild(line);
+    svg.appendChild(txt(PAD.left-8, y+4, v===0?"0":fmtK(v), "10","400","#bbb","end"));
+  });
+
+  // Grid lines X
+  [10000,20000,30000,40000,50000,60000,70000,80000].forEach(v=>{
+    const x = scaleX(v);
+    const line = mk("line");
+    line.setAttribute("x1",x); line.setAttribute("x2",x);
+    line.setAttribute("y1",PAD.top); line.setAttribute("y2",H-PAD.bottom);
+    line.setAttribute("stroke","#f0f0f0"); line.setAttribute("stroke-width","1");
+    svg.appendChild(line);
+    svg.appendChild(txt(x, H-PAD.bottom+14, fmtK(v), "10","400","#bbb","middle"));
+  });
+
+  // Axis labels
+  svg.appendChild(txt(W/2, H-6, "Capacidad", "11","700","#999","middle"));
+  const yl = mk("text");
+  yl.setAttribute("transform",`rotate(-90) translate(${-(H/2)},14)`);
+  yl.setAttribute("text-anchor","middle"); yl.setAttribute("font-size","11");
+  yl.setAttribute("font-weight","700"); yl.setAttribute("fill","#999");
+  yl.setAttribute("font-family","Arial,sans-serif");
+  yl.textContent="Promedio por partido"; svg.appendChild(yl);
+
+  // Diagonal reference line (max occupancy = y equals x)
+  const x0=scaleX(minCap), y0=scaleY(minCap);
+  const x1=scaleX(maxCap), y1=scaleY(maxCap);
+  const refLine=mk("line");
+  refLine.setAttribute("x1",x0); refLine.setAttribute("y1",y0);
+  refLine.setAttribute("x2",x1); refLine.setAttribute("y2",y1);
+  refLine.setAttribute("stroke","#ccc"); refLine.setAttribute("stroke-width","1.2");
+  refLine.setAttribute("stroke-dasharray","5,4");
+  svg.appendChild(refLine);
+
+  // Label on the diagonal
+  svg.appendChild(txt(x1-12, y1-10, "100% ocupación", "9","600","#bbb","end"));
+
+  // Annotation: above the diagonal near 40k capacity
+  const annX = scaleX(30000), annY = scaleY(52000);
+  const arrX = scaleX(28000), arrY = scaleY(43000);
+
+  // Arrowhead marker def
+  const defs = mk("defs");
+  defs.innerHTML = `<marker id="arrowhead" markerWidth="6" markerHeight="6" refX="3" refY="3" orient="auto">
+    <path d="M0,0 L0,6 L6,3 Z" fill="#bbb"/>
+  </marker>`;
+  svg.insertBefore(defs, svg.firstChild);
+
+  // Vertical arrow pointing down to diagonal
+  const diagY = scaleY(25000);
+  const arr = mk("line");
+  arr.setAttribute("x1", annX - 30); arr.setAttribute("y1", annY + 44);
+  arr.setAttribute("x2", annX - 30); arr.setAttribute("y2", annY + 110);
+  arr.setAttribute("stroke","#bbb"); arr.setAttribute("stroke-width","0.9");
+  arr.setAttribute("marker-end","url(#arrowhead)");
+  svg.appendChild(arr);
+
+  // Text lines above diagonal
+  const ann1 = mk("text");
+  ann1.setAttribute("x", annX - 76); ann1.setAttribute("y", annY + 14);
+  ann1.setAttribute("font-size","9"); ann1.setAttribute("font-weight","600");
+  ann1.setAttribute("font-family","Arial,sans-serif");
+  ann1.setAttribute("fill","#555");
+  ann1.textContent = "Cuanto más cerca de la línea,";
+  svg.appendChild(ann1);
+
+  const ann2 = mk("text");
+  ann2.setAttribute("x", annX - 76); ann2.setAttribute("y", annY + 26);
+  ann2.setAttribute("font-size","9"); ann2.setAttribute("font-weight","600");
+  ann2.setAttribute("font-family","Arial,sans-serif");
+  ann2.setAttribute("fill","#555");
+  ann2.textContent = "mayor % de ocupación del estadio.";
+  svg.appendChild(ann2);
+
+  const ann3 = mk("text");
+  ann3.setAttribute("x", annX - 76); ann3.setAttribute("y", annY + 38);
+  ann3.setAttribute("font-size","9"); ann3.setAttribute("font-weight","400");
+  ann3.setAttribute("font-family","Arial,sans-serif");
+  ann3.setAttribute("fill","#999");
+  ann3.textContent = "En la línea = estadio lleno al 100%.";
+  svg.appendChild(ann3);
+
+  const sorted = [...DATA].sort((a,b)=>b.espectadores-a.espectadores);
+  const hlFn = getHighlight();
+
+  sorted.forEach(d=>{
+    const state = hlFn(d);
+    const color = LIGAS[d.liga].color;
+    const cx=scaleX(d.capacidad), cy=scaleY(d.promedio), r=scaleR(d.espectadores);
+
+    const circle=mk("circle");
+    circle.setAttribute("cx",cx); circle.setAttribute("cy",cy);
+    circle.setAttribute("r", r);
+    circle.setAttribute("fill", color);
+    circle.setAttribute("fill-opacity", state==='dimmed' ? "0.1" : "0.82");
+    circle.setAttribute("stroke", state==='highlight' ? "#1a1a1a" : color);
+    circle.setAttribute("stroke-width", state==='highlight' ? "2.5" : "0.8");
+    circle.setAttribute("stroke-opacity", state==='dimmed' ? "0.15" : "1");
+    circle.style.cursor="pointer";
+
+    circle.addEventListener("mousemove",(e)=>{ showTip(e,d,color); circle.setAttribute("stroke","#1a1a1a"); circle.setAttribute("stroke-width","2.5"); });
+    circle.addEventListener("mouseleave",()=>{ hideTip(); circle.setAttribute("stroke", state==='highlight' ? "#1a1a1a" : color); circle.setAttribute("stroke-width", state==='highlight' ? "2.5" : "0.8"); });
+    svg.appendChild(circle);
+  });
+}
+
+// Tooltip
+const tip=document.getElementById("tooltip");
+function showTip(e,d,color){
+  const occ=Math.round(d.promedio/d.capacidad*100);
+  tip.innerHTML=`
+    <div class="tt-team" style="color:${color}">${d.stadium}</div>
+    <div class="tt-stadium">${d.team} · <strong>${LIGAS[d.liga].label}</strong></div>
+    <div class="tt-row"><span class="tt-lbl">Capacidad</span><span class="tt-val">${fmt(d.capacidad)}</span></div>
+    <div class="tt-row"><span class="tt-lbl">Promedio/partido</span><span class="tt-val">${fmt(d.promedio)}</span></div>
+    <div class="tt-row"><span class="tt-lbl">Espectadores</span><span class="tt-val">${fmt(d.espectadores)}</span></div>
+    <div class="tt-row"><span class="tt-lbl">Ocupación media</span><span class="tt-val" style="color:${color}">${occ}%</span></div>`;
+  tip.classList.add("visible");
+}
+function hideTip(){ tip.classList.remove("visible"); }
+document.addEventListener("mousemove",e=>{
+  const tipW = 230;
+  const fromRight = window.innerWidth - e.clientX;
+  if(fromRight < tipW + 20){
+    tip.style.left = (e.clientX - tipW - 10) + "px";
+  } else {
+    tip.style.left = (e.clientX + 14) + "px";
+  }
+  tip.style.top = (e.clientY - 8) + "px";
+});
+
+document.addEventListener("click", e => {
+  if (!searchTeams) return;
+  const searchArea = document.querySelector(".search-wrap").closest("div");
+  if (!searchArea.contains(e.target)) {
+    searchTeams = null;
+    document.getElementById("search-input").value = "";
+    document.getElementById("search-results").textContent = "";
+    draw();
+  }
+});
+
+draw();
+</script>
+</body>
+</html>
