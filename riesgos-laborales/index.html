@@ -1,1 +1,306 @@
-dfg
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Riesgos psicosociales en el trabajo — Agencia EFE</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: #fff; font-family: Arial, sans-serif; color: #1a1a1a; }
+  .wrapper { max-width: 720px; margin: 0 auto; padding: 32px 20px 32px; }
+  h1 { font-size: 20px; font-weight:900; line-height:0.8; margin-bottom:22px; max-width:620px; }
+  .legend-row { margin-bottom:14px; }
+  .legend-title { font-size:12px; font-weight:700; margin-bottom:5px; }
+  .legend-items { display:flex; gap:20px; flex-wrap:wrap; }
+  .legend-item { display:flex; align-items:center; gap:7px; font-size:12px; color:#444; }
+  .legend-dot { width:12px; height:12px; border-radius:2px; flex-shrink:0; }
+  #chart-svg { width:100%; display:block; }
+  .tooltip { position:fixed; background:#fff; color:#1a1a1a; border:1px solid #d0d0d0; padding:10px 13px; border-radius:3px; font-size:14px; line-height:1.7; pointer-events:none; opacity:0; transition:opacity 0.1s; z-index:100; max-width:200px; box-shadow:0 2px 8px rgba(0,0,0,0.07); }
+  .tooltip.visible { opacity:1; }
+  .tt-region { font-weight:800; font-size:14px; margin-bottom:4px; }
+  .tt-row { display:flex; justify-content:space-between; gap:14px; font-size:13px; }
+  .tt-lbl { color:#888; }
+  .tt-val { font-weight:700; }
+  .footer { margin-top:16px; display:flex; justify-content:space-between; font-size:11px; color:#999; padding-top:10px; border-top:1px solid #eee; }
+  .footer-brand { font-weight:400; color:#1a1a1a; letter-spacing:0.06em; font-size:12px; }
+</style>
+</head>
+<body>
+<div class="wrapper">
+  <h1>Más de 840.000 personas mueren anualmente <br> <br/>por riesgos psicosociales en el trabajo</h1>
+  <div class="legend-row">
+    <div class="legend-title" id="legend-title">Las muertes por regiones</div>
+    <div class="legend-items" id="legend-items">
+      <div class="legend-item"><div class="legend-dot" style="background:#e8327a"></div>Enfermedades Cardiovasculares</div>
+      <div class="legend-item"><div class="legend-dot" style="background:#2c5f7a"></div>Trastornos Mentales</div>
+    </div>
+  </div>
+  <svg id="chart-svg" viewBox="0 0 700 560" xmlns="http://www.w3.org/2000/svg"></svg>
+  <div class="footer">
+    <span>Fuente: International Labour Organization, 2026.</span>
+  </div>
+</div>
+<div class="tooltip" id="tooltip"></div>
+
+<script>
+const DATA = [
+  { id:"asia",    label:"Asia y Pacífico",      total:463313, cvd:431701, md:31612, cvdM:259575, cvdF:172126, mdM:25072, mdF:6540  },
+  { id:"africa",  label:"África",                total:174226, cvd:162844, md:11382, cvdM:88656,  cvdF:74188,  mdM:8563,  mdF:2819  },
+  { id:"europa",  label:"Europa y Asia Central", total:112333, cvd:105072, md:7261,  cvdM:55791,  cvdF:49281,  mdM:5389,  mdF:1872  },
+  { id:"americas",label:"Américas",              total:79134,  cvd:73871,  md:5263,  cvdM:41921,  cvdF:31950,  mdM:4049,  mdF:1214  },
+  { id:"arabes",  label:"Estados Árabes",        total:11082,  cvd:10206,  md:876,   cvdM:8319,   cvdF:1887,   mdM:804,   mdF:72    },
+];
+
+const ANGLES = [
+  { id:"asia",     start:-75.5, end: 76.5 },
+  { id:"africa",   start: 77,   end:147.5 },
+  { id:"europa",   start:148,   end:213.5 },
+  { id:"americas", start:214,   end:271.5 },
+  { id:"arabes",   start:272,   end:284   },
+];
+
+const CX=350, CY=290, INNER=58, OUTER_MAX=230;
+const CVD_COLOR="#e8327a", MD_COLOR="#2c5f7a";
+const MALE_COLOR="#4a9a5a", FEMALE_COLOR="#f0724a";
+
+let activeRegion=null;
+let animRegion=null;
+let animProgress=0;
+let animRAF=null;
+
+function ease(t){ return t<0.5?2*t*t:-1+(4-2*t)*t; }
+function lerp(a,b,t){ return a+(b-a)*t; }
+function lerpColor(c1,c2,t){
+  const h=s=>parseInt(s,16);
+  const r=Math.round(h(c1.slice(1,3))+(h(c2.slice(1,3))-h(c1.slice(1,3)))*t);
+  const g=Math.round(h(c1.slice(3,5))+(h(c2.slice(3,5))-h(c1.slice(3,5)))*t);
+  const b=Math.round(h(c1.slice(5,7))+(h(c2.slice(5,7))-h(c1.slice(5,7)))*t);
+  return `rgb(${r},${g},${b})`;
+}
+
+const LEGEND_DEFAULT=`<div class="legend-item"><div class="legend-dot" style="background:#e8327a"></div>Enfermedades Cardiovasculares</div><div class="legend-item"><div class="legend-dot" style="background:#2c5f7a"></div>Trastornos Mentales</div>`;
+const LEGEND_GENDER=`<div class="legend-item"><div class="legend-dot" style="background:${MALE_COLOR}"></div>Hombres</div><div class="legend-item"><div class="legend-dot" style="background:${FEMALE_COLOR}"></div>Mujeres</div>`;
+function updateLegend(gender){
+  document.getElementById("legend-title").textContent=gender?"Las muertes por sexos":"Las muertes por regiones";
+  document.getElementById("legend-items").innerHTML=gender?LEGEND_GENDER:LEGEND_DEFAULT;
+}
+
+function startAnim(id,expand){
+  if(animRAF) cancelAnimationFrame(animRAF);
+  if(animRegion!==id) animProgress=expand?0:1;
+  if(expand){ activeRegion=id; updateLegend(true); } else activeRegion=null;
+  animRegion=id;
+  const from=animProgress, to=expand?1:0;
+  const t0=performance.now(), dur=650;
+  function step(now){
+    const t=Math.min((now-t0)/dur,1);
+    animProgress=from+(to-from)*ease(t);
+    drawChart();
+    if(t<1){ animRAF=requestAnimationFrame(step); }
+    else{
+      animProgress=to;
+      if(!expand){ animRegion=null; updateLegend(false); }
+      drawChart();
+    }
+  }
+  animRAF=requestAnimationFrame(step);
+}
+
+function toRad(d){ return d*Math.PI/180; }
+function fmt(n){ return n.toLocaleString("es-ES"); }
+function getRadius(val){ return INNER+(OUTER_MAX-INNER)*Math.pow(val/DATA[0].total,0.52); }
+
+function arcPath(r1,r2,s,e,gap=0.45){
+  const sr=toRad(s+gap), er=toRad(e-gap), lg=(e-s)>180?1:0;
+  const x1=CX+r2*Math.cos(sr), y1=CY+r2*Math.sin(sr);
+  const x2=CX+r2*Math.cos(er), y2=CY+r2*Math.sin(er);
+  const x3=CX+r1*Math.cos(er), y3=CY+r1*Math.sin(er);
+  const x4=CX+r1*Math.cos(sr), y4=CY+r1*Math.sin(sr);
+  return `M${x1} ${y1} A${r2} ${r2} 0 ${lg} 1 ${x2} ${y2} L${x3} ${y3} A${r1} ${r1} 0 ${lg} 0 ${x4} ${y4}Z`;
+}
+
+function mk(tag){ return document.createElementNS("http://www.w3.org/2000/svg",tag); }
+
+function svgTxt(x,y,content,size,weight,color,anchor){
+  const t=mk("text");
+  t.setAttribute("x",x); t.setAttribute("y",y);
+  t.setAttribute("text-anchor",anchor||"middle");
+  t.setAttribute("font-size",size); t.setAttribute("font-weight",weight);
+  t.setAttribute("font-family","Arial,sans-serif");
+  t.setAttribute("fill",color);
+  t.textContent=content;
+  return t;
+}
+
+// Label config: dist = gap from arc edge along radial
+// Árabes gets a fixed absolute position to avoid collision
+const LABEL_CFG = {
+  asia:     { dist:14, anchor:"start" },
+  africa:   { dist:14, anchor:"start", dy:12 },
+  europa:   { dist:14, anchor:"end"   },
+  americas: { dist:14, anchor:"end"   },
+  arabes:   { fixed: true, lx:340, ly:98, anchor:"start" },
+};
+
+function drawChart(){
+  const svg=document.getElementById("chart-svg");
+  svg.innerHTML="";
+  const p=animProgress;
+
+  const bg=mk("rect");
+  bg.setAttribute("x","0"); bg.setAttribute("y","0");
+  bg.setAttribute("width","700"); bg.setAttribute("height","560");
+  bg.setAttribute("fill","transparent");
+  bg.addEventListener("click",()=>{ if(activeRegion) startAnim(activeRegion,false); });
+  svg.appendChild(bg);
+
+  // Guide rings fade out during expansion
+  if(p<0.99){
+    [0.35,0.68,1].forEach(f=>{
+      const c=mk("circle"); c.setAttribute("cx",CX); c.setAttribute("cy",CY);
+      c.setAttribute("r",INNER+(OUTER_MAX-INNER)*f);
+      c.setAttribute("fill","none"); c.setAttribute("stroke","#f0f0f0"); c.setAttribute("stroke-width","0.8");
+      c.setAttribute("opacity",1-p); svg.appendChild(c);
+    });
+  }
+
+  DATA.forEach(region=>{
+    const ang=ANGLES.find(a=>a.id===region.id);
+    const {start,end}=ang;
+    const isExp=animRegion===region.id;
+    const rp=isExp?p:0;
+    const dimAlpha=animRegion&&!isExp?Math.max(0,1-p):1;
+    if(dimAlpha<0.01) return;
+
+    const rCVD=getRadius(region.cvd);
+    const rMD=INNER+(getRadius(region.md)-INNER)*0.68;
+    const mid=(start+end)/2;
+    const midR=toRad(mid);
+    const maleFrac=(region.cvdM+region.mdM)/region.total;
+    const femaleFrac=1-maleFrac;
+    const pieBase=mid-180;
+
+    // Interpolate geometry from normal arcs → full pie slices
+    const cvdI=lerp(INNER,0,rp), cvdO=lerp(rCVD,OUTER_MAX,rp);
+    const cvdS=lerp(start,pieBase,rp), cvdE=lerp(end,pieBase+360*maleFrac,rp);
+    const mdI=lerp(INNER,0,rp), mdO=lerp(rMD,OUTER_MAX,rp);
+    const mdS=lerp(start,pieBase+360*maleFrac,rp), mdE=lerp(end,pieBase+360,rp);
+    const gap=lerp(0.45,0,rp);
+    const sliceFill1=lerpColor(CVD_COLOR,MALE_COLOR,rp);
+    const sliceFill2=lerpColor(MD_COLOR,FEMALE_COLOR,rp);
+    const sliceStroke="#fff";
+
+    const maleWins=maleFrac>=femaleFrac;
+    const swMale=lerp(1.5,maleWins?3:1.5,rp), swFemale=lerp(1.5,maleWins?1.5:3,rp);
+
+    const pC=mk("path"); pC.setAttribute("d",arcPath(cvdI,cvdO,cvdS,cvdE,gap));
+    pC.setAttribute("fill",sliceFill1); pC.setAttribute("opacity",dimAlpha);
+    pC.setAttribute("stroke",sliceStroke); pC.setAttribute("stroke-width",swMale);
+    svg.appendChild(pC);
+
+    const pM=mk("path"); pM.setAttribute("d",arcPath(mdI,mdO,mdS,mdE,gap));
+    pM.setAttribute("fill",sliceFill2); pM.setAttribute("opacity",dimAlpha);
+    pM.setAttribute("stroke",sliceStroke); pM.setAttribute("stroke-width",swFemale);
+    svg.appendChild(pM);
+
+    // Original labels — fade out as region expands or dims
+    const lblAlpha=isExp?Math.max(0,1-rp*2.5):dimAlpha;
+    if(lblAlpha>0.02){
+      const cfg=LABEL_CFG[region.id];
+      let lx,ly,anchor=cfg.anchor;
+      if(cfg.fixed){
+        lx=cfg.lx; ly=cfg.ly;
+        const ex=CX+(rCVD+4)*Math.cos(midR), ey=CY+(rCVD+4)*Math.sin(midR);
+        const ln=mk("line");
+        ln.setAttribute("x1",ex); ln.setAttribute("y1",ey);
+        ln.setAttribute("x2",lx+20); ln.setAttribute("y2",ly+30);
+        ln.setAttribute("stroke","#c0c0c0"); ln.setAttribute("stroke-width","0.9");
+        ln.setAttribute("opacity",lblAlpha); svg.appendChild(ln);
+      } else {
+        lx=CX+(rCVD+cfg.dist)*Math.cos(midR);
+        ly=CY+(rCVD+cfg.dist)*Math.sin(midR);
+      }
+      const lh=12;
+      const words=region.label.toUpperCase().split(" ");
+      const half=Math.ceil(words.length/2);
+      const lns=[words.slice(0,half).join(" "),words.slice(half).join(" ")].filter(Boolean);
+      let by=ly+(cfg.dy||0)-(lns.length*lh)/2+lh*0.6;
+      lns.forEach(l=>{ const t=svgTxt(lx,by,l,"9.5","800","#1a1a1a",anchor); t.setAttribute("opacity",lblAlpha); svg.appendChild(t); by+=lh; });
+      const tt=svgTxt(lx,by,fmt(region.total),"10","700","#1a1a1a",anchor); tt.setAttribute("opacity",lblAlpha); svg.appendChild(tt);
+    }
+
+    // Pie chart labels — fade in in the last 35% of animation
+    if(isExp && rp>0.65){
+      const pa=(rp-0.65)/0.35;
+      const labR=OUTER_MAX*0.63;
+      const maleMid=toRad(pieBase+360*maleFrac/2);
+      const femaleMid=toRad(pieBase+360*maleFrac+360*femaleFrac/2);
+      const malePct=Math.round(maleFrac*100), femalePct=100-malePct;
+      const totalM=region.cvdM+region.mdM, totalF=region.cvdF+region.mdF;
+      const mLX=CX+labR*Math.cos(maleMid), mLY=CY+labR*Math.sin(maleMid);
+      [[malePct+"%","16","900",-14],["("+fmt(totalM)+")","10","400",2],["HOMBRES","10","700",14]].forEach(([txt,sz,w,dy])=>{
+        const t=svgTxt(mLX,mLY+dy,txt,sz,w,"#fff","middle"); t.setAttribute("opacity",pa); svg.appendChild(t);
+      });
+      if(femaleFrac>0.03){
+        const fLX=CX+labR*Math.cos(femaleMid), fLY=CY+labR*Math.sin(femaleMid);
+        [[femalePct+"%","16","900",-14],["("+fmt(totalF)+")","10","400",2],["MUJERES","10","700",14]].forEach(([txt,sz,w,dy])=>{
+          const t=svgTxt(fLX,fLY+dy,txt,sz,w,"#fff","middle"); t.setAttribute("opacity",pa); svg.appendChild(t);
+        });
+      }
+    }
+
+    // Clickable overlay
+    const ov=mk("path");
+    ov.setAttribute("d",isExp&&p>0.5
+      ?arcPath(0,OUTER_MAX+2,pieBase,pieBase+360,0.5)
+      :arcPath(INNER,OUTER_MAX+2,start,end,0.2));
+    ov.setAttribute("fill","transparent"); ov.style.cursor="pointer";
+    ov.addEventListener("click",(e)=>{ e.stopPropagation(); onRegionClick(region.id); });
+    ov.addEventListener("mousemove",(e)=>{ if(!animRegion||isExp) isExp&&p>0.5?showSimpleTip(e,region):showTip(e,region); });
+    ov.addEventListener("mouseleave",hideTip);
+    svg.appendChild(ov);
+  });
+
+  // Center circle shrinks and fades as region expands
+  if(p<0.95){
+    const cr=lerp(INNER-3,0,p);
+    if(cr>1){
+      const cc=mk("circle"); cc.setAttribute("cx",CX); cc.setAttribute("cy",CY);
+      cc.setAttribute("r",cr); cc.setAttribute("fill","#f9f9f9");
+      cc.setAttribute("stroke","#e8e8e8"); cc.setAttribute("stroke-width","1");
+      cc.setAttribute("opacity",1-p); svg.appendChild(cc);
+    }
+    if(p<0.4){
+      const co=Math.max(0,1-p*2.5);
+      const ct=svgTxt(CX,CY-3,"840.088","14","800","#1a1a1a","middle"); ct.setAttribute("opacity",co); svg.appendChild(ct);
+      const ct2=svgTxt(CX,CY+11,"muertes totales","10","400","#aaa","middle"); ct2.setAttribute("opacity",co); svg.appendChild(ct2);
+    }
+  }
+}
+
+const tip=document.getElementById("tooltip");
+function showSimpleTip(e,r){
+  tip.innerHTML=`<div class="tt-region">${r.label}</div>`;
+  tip.classList.add("visible");
+}
+function showTip(e,r){
+  tip.innerHTML=`
+    <div class="tt-region">${r.label}</div>
+    <div class="tt-row"><span class="tt-lbl">Total</span><span class="tt-val">${fmt(r.total)}</span></div>
+    <div class="tt-row"><span class="tt-lbl" style="color:${CVD_COLOR}">Cardiovascular</span><span class="tt-val" style="color:${CVD_COLOR}">${fmt(r.cvd)}</span></div>
+    <div class="tt-row"><span class="tt-lbl" style="color:${MD_COLOR}">Mental</span><span class="tt-val" style="color:${MD_COLOR}">${fmt(r.md)}</span></div>
+    <div style="margin-top:6px;font-size:13px;color:#bbb;">Clica para ver la distribución por sexos</div>`;
+  tip.classList.add("visible");
+}
+function hideTip(){ tip.classList.remove("visible"); }
+document.addEventListener("mousemove",e=>{ tip.style.left=(e.clientX+14)+"px"; tip.style.top=(e.clientY-8)+"px"; });
+
+function onRegionClick(id){
+  if(activeRegion===id) startAnim(id,false);
+  else startAnim(id,true);
+}
+
+drawChart();
+</script>
+</body>
+</html>
